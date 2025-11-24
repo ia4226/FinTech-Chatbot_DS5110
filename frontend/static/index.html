@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>FinTech Intelligence Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2l9 5v6c0 5.55-3 10-9 13-6-3-9-7.45-9-13V7l9-5z"></path>
+                    </svg>
+                    <span class="logo-text">FinTech AI</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-action="chat">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>Chat</span>
+                </a>
+                <a href="#" class="nav-item" data-action="analysis">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="2" x2="12" y2="22"></line>
+                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                    </svg>
+                    <span>Analysis</span>
+                </a>
+                <a href="#" class="nav-item" data-action="reports">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="13" x2="18" y2="13"></line>
+                        <line x1="12" y1="17" x2="18" y2="17"></line>
+                        <polyline points="9 13 8 12 7 13"></polyline>
+                        <polyline points="9 17 8 16 7 17"></polyline>
+                    </svg>
+                    <span>Reports</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">U</div>
+                    <div class="user-info">
+                        <p class="user-name">User</p>
+                        <p class="user-status">Active</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <h1 class="page-title">Financial ChatBot</h1>
+                    <p class="page-subtitle">AI-powered company analysis and market insights</p>
+                </div>
+                <div class="header-right">
+                    <div class="status-badge">
+                        <span class="status-dot"></span>
+                        Live
+                    </div>
+                    <!-- theme toggle removed to restore original single-theme UI -->
+                </div>
+            </header>
+
+            <!-- Chat Container -->
+            <div class="chat-container">
+                <div class="messages-area" id="messages-area">
+                    <div class="empty-state">
+                        <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M8 12h8"></path>
+                            <path d="M8 16h8"></path>
+                            <path d="M12 8v1"></path>
+                        </svg>
+                        <h2 class="empty-state-title">Welcome to FinTech Intelligence</h2>
+                        <p class="empty-state-text">Ask about any publicly traded company. Get real-time stock data,
+                            recent news, and AI-powered analysis.</p>
+                        <div class="empty-state-suggestions">
+                            <div class="suggestion-chip" data-query="Apple stock price and news">Apple analysis</div>
+                            <div class="suggestion-chip" data-query="Tell me about Microsoft">Microsoft overview</div>
+                            <div class="suggestion-chip" data-query="Google recent news and financials">Google
+                                financials</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div class="loading-indicator" id="loading-indicator" style="display: none;">
+                    <div class="spinner"></div>
+                    <p class="loading-text">Analyzing company data...</p>
+                </div>
+
+                <!-- Input Area (Fixed at bottom) -->
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <input type="text" id="query-input" class="query-input"
+                            placeholder="Enter company name or analysis request..." autocomplete="off" />
+                        <button id="send-button" class="send-button" aria-label="Send message">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="input-helper">Press Enter or click the send button to analyze</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Full Report -->
+    <div class="modal" id="report-modal">
+        <div class="modal-content">
+            <button class="modal-close">&times;</button>
+            <div class="modal-header">
+                <h2 id="report-modal-title">Detailed Report</h2>
+            </div>
+            <div class="modal-body">
+                <div id="report-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="modal-download-btn" class="btn btn-primary">Download Report</button>
+                <button class="btn btn-secondary modal-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/main.js"></script>
+</body>
+
+</html>

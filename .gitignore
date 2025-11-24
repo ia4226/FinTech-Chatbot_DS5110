@@ -1,0 +1,3 @@
+venv/
+# Local environment variables
+.env.example
