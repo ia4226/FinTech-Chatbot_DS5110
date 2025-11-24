@@ -1,8 +1,13 @@
+import os
 from openai import OpenAI
 
+api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+if not api_key:
+    raise RuntimeError("OPENAI_API_KEY environment variable is required for test2deepseek.py")
+
 client = OpenAI(
-  base_url="https://openrouter.ai/api/v1",
-  api_key="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",
+  base_url=os.environ.get('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1'),
+  api_key=api_key,
 )
 
 # First API call with reasoning

@@ -4,6 +4,7 @@ from src.modules.news_fetcher import get_news_content
 from src.modules.stock_info_formatter import get_stock_info
 from transformers import pipeline
 from openai import OpenAI
+import os
 import yfinance as yf
 import sys
 from datetime import datetime
@@ -160,9 +161,16 @@ def generate_detailed_report(company_name, report):
     print("\n[GENERATING REPORT] Creating detailed analysis with AI...")
     
     try:
+        # Load API key from environment variable to avoid hardcoding secrets in source
+        api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+        if not api_key:
+            msg = "OpenAI API key not found in environment variable OPENAI_API_KEY."
+            print(f"[ERROR] {msg}")
+            return f"Unable to generate detailed report: {msg}"
+
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key="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",
+            base_url=os.environ.get('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1'),
+            api_key=api_key,
         )
         
         # Prepare the prompt
