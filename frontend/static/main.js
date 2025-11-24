@@ -109,7 +109,37 @@ function addAnalysisCard(title, data, type) {
 
         if (Array.isArray(data)) {
             data.forEach((item, idx) => {
-                html += `<li class="news-item">${item}</li>`;
+                // Format news: preserve line breaks, extract header (bold text before colon), and add proper bullet structure
+                const lines = item
+                    .split('\n')
+                    .filter(line => line.trim())
+                    .map(line => {
+                        // Remove word count metadata like *(Word count: 378)*
+                        let cleanLine = line.replace(/\*\(Word count:.*?\)\*/g, '').trim();
+                        if (!cleanLine) return '';
+
+                        // Parse bullet points with format "- **Header**: Content"
+                        const headerMatch = cleanLine.match(/^[-•]\s*\*\*(.*?)\*\*:\s*(.*)$/);
+                        if (headerMatch) {
+                            const [, header, content] = headerMatch;
+                            return `<div class="news-bullet"><strong class="bullet-header">${header}:</strong> <span class="bullet-content">${content}</span></div>`;
+                        }
+
+                        // Parse bullet points with format "- Header: Content"
+                        const simpleMatch = cleanLine.match(/^[-•]\s*([^:]+):\s*(.*)$/);
+                        if (simpleMatch) {
+                            const [, header, content] = simpleMatch;
+                            return `<div class="news-bullet"><strong class="bullet-header">${header}:</strong> <span class="bullet-content">${content}</span></div>`;
+                        }
+
+                        // Otherwise treat as regular content
+                        return `<div class="news-bullet"><span class="bullet-content">${cleanLine}</span></div>`;
+                    })
+                    .join('');
+
+                if (lines) {
+                    html += `<li class="news-item">${lines}</li>`;
+                }
             });
         }
 
@@ -178,7 +208,7 @@ function renderPriceChart(chartData, company) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
+            maintainAspectRatio: true,
             interaction: { intersect: false, mode: 'index' },
             plugins: {
                 legend: { display: false },
