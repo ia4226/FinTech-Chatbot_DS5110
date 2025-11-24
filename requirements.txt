@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+transformers
+bs4
+torch
+openai
+yfinance
+python-multipart
+spacy
