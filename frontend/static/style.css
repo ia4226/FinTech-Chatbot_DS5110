@@ -721,6 +721,45 @@ body {
     font-size: var(--font-size-sm);
     transition: all var(--transition-fast);
     display: block;
+    box-shadow: var(--shadow-xs);
+    background: linear-gradient(135deg, var(--gray-50) 0%, #fafbfc 100%);
+    border-left: 5px solid var(--accent-600);
+}
+
+.news-bullet {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: var(--sp-md);
+    padding-left: var(--sp-md);
+}
+
+.news-bullet::before {
+    content: '•';
+    color: var(--accent-600);
+    font-weight: bold;
+    margin-right: var(--sp-md);
+    flex-shrink: 0;
+}
+
+.news-bullet:last-child {
+    margin-bottom: 0;
+}
+
+.bullet-header {
+    color: var(--accent-700);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.3px;
+    display: inline;
+    margin-right: var(--sp-sm);
+}
+
+.bullet-content {
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    display: inline;
+    font-weight: var(--font-weight-normal);
 }
 
 .news-item:last-child {
@@ -1373,12 +1412,35 @@ body {
 
 .price-chart {
     width: 100%;
+    height: 420px;
+    /* Forces stable vertical space */
+    max-height: 900px;
     background: white;
     border-radius: var(--radius-lg);
     border: 1px solid var(--gray-200);
     padding: var(--sp-lg);
     box-sizing: border-box;
+    display: block;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    /* Required for responsive canvas */
 }
+
+.price-chart canvas {
+    width: 100% !important;
+    height: 100% !important;
+    /* Prevents squashing */
+    display: block;
+}
+
+.chart-section .section-title {
+    margin-bottom: var(--sp-xl);
+    color: var(--gray-800);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.2px;
+}
+
 
 /* Report Content Section */
 .report-content-section {

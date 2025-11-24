@@ -32,6 +32,19 @@ class QueryPayload(BaseModel):
 class CompanyPayload(BaseModel):
     company: str
 
+
+def _index_to_date_str(idx) -> str:
+    """Safely convert an index value to a date string.
+
+    Many DataFrame indices are pandas Timestamps which expose `.date()`.
+    Static type checkers (Pylance) may treat the index as `Hashable` and
+    complain about `.date()`. Use a try/except fallback to `str(idx)`.
+    """
+    try:
+        return str(idx.date())
+    except Exception:
+        return str(idx)
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return FileResponse("frontend/static/index.html")
@@ -86,7 +99,7 @@ async def api_stock_history(payload: CompanyPayload):
             return {"history": []}
 
         # Return dates and close prices
-        data = [{"date": str(idx.date()), "close": float(row.Close)} for idx, row in hist.iterrows()]
+        data = [{"date": _index_to_date_str(idx), "close": float(row.Close)} for idx, row in hist.iterrows()]
         return {"history": data}
     except Exception as e:
         traceback.print_exc()
@@ -110,7 +123,7 @@ async def api_report(payload: QueryPayload):
         try:
             hist = yf.Ticker(ticker).history(period='1y')
             if hist is not None and not hist.empty:
-                chart_data = [{"date": str(idx.date()), "close": float(row.Close)} for idx, row in hist.iterrows()]
+                chart_data = [{"date": _index_to_date_str(idx), "close": float(row.Close)} for idx, row in hist.iterrows()]
         except:
             pass
         

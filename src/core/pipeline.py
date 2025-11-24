@@ -2,42 +2,78 @@ import json
 from src.modules.extract_company_name import extract_company_name
 from src.modules.news_fetcher import get_news_content
 from src.modules.stock_info_formatter import get_stock_info
-from transformers import pipeline
 from openai import OpenAI
 import os
 import yfinance as yf
 import sys
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables (.env must be in project root)
+load_dotenv()
+
+# Fetch API key and base URL from environment
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
 
 # Initialize summarizer
 def load_summarizer():
     """Load the summarization model."""
-    try:
-        print("Loading summarization model...")
-        return pipeline("summarization", model="facebook/bart-large-cnn")
-    except Exception as e:
-        print(f"Error loading summarizer: {e}")
+    # Deprecated: summarization now uses the OpenAI/Grok API.
+    # Keep this function for compatibility but return None.
+    return None
+
+def get_openai_client():
+    """Return an OpenAI client configured with hardcoded API key (temporary).
+
+    Returns None when no API key is available.
+    """
+    api_key = OPENROUTER_API_KEY
+    if not api_key:
         return None
+    base_url = OPENAI_BASE_URL
+    return OpenAI(base_url=base_url, api_key=api_key)
+
+def summarize_with_grok(text: str, company_name: str | None = None) -> str:
+    """Summarize `text` using the Grok model via the OpenAI client.
+
+    Returns a summary string with detailed bullet points. On failure returns an explanatory message.
+    """
+    try:
+        client = get_openai_client()
+        if client is None:
+            return "[Summary unavailable: OPENAI_API_KEY not set]"
+
+        # Ask Grok to produce longer, more detailed summaries with proper structure
+        prompt_company = f" about {company_name}" if company_name else ""
+        prompt = (
+            f"You are a professional news summarizer. Summarize the following news article{prompt_company}"
+            " in 4-6 detailed bullet points (300-400 words total). Focus on key facts, developments, and impact."
+            " Use proper bullet formatting with clear line breaks between points. Keep it factual and neutral.\n\n"
+            f"ARTICLE:\n{text}"
+        )
+
+        response = client.chat.completions.create(
+            model="x-ai/grok-4.1-fast",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800,
+        )
+
+        content = getattr(response.choices[0].message, 'content', None)
+        return content if isinstance(content, str) and content.strip() else "[No summary returned]"
+    except Exception as e:
+        return f"[Summary failed: {e}]"
 
 def safe_summarize(summarizer, text, max_chars=1500):
     """Safely summarize text with dynamic length adjustment."""
     try:
         if not text or len(text.strip()) < 50:
             return text
-        
-        tokens = text.split()
-        token_len = len(tokens)
 
-        if token_len < 80:
-            max_len = 50
-        elif token_len < 200:
-            max_len = 100
-        else:
-            max_len = 250
-
-        result = summarizer(text, max_length=max_len, min_length=30, do_sample=False)
-        return result[0]["summary_text"] if result else text
+        # Use Grok-based summarizer instead of local transformers model.
+        # `summarizer` param is ignored for backwards compatibility.
+        return summarize_with_grok(text)
     except Exception as e:
         return f"[Summary failed: {e}]"
 
@@ -68,34 +104,36 @@ def fetch_news(company_name):
         if not contents:
             print("[NEWS] No articles found.")
             return []
-        
-        # Limit to 5 articles
-        contents = contents[:5]
-        print(f"[NEWS] Found {len(contents)} articles. Summarizing...")
-        
-        summarizer = load_summarizer()
-        if not summarizer:
-            print("[WARNING] Summarizer not available, returning raw content.")
-            return contents[:3]  # Return first 3 raw articles
-        
+        # Prefer articles that explicitly mention the company name (case-insensitive)
+        company_lower = (company_name or "").lower()
+        filtered = [c for c in contents if c and company_lower in c.lower()]
+
+        if filtered:
+            selected = filtered[:5]
+            print(f"[NEWS] Found {len(filtered)} company-specific articles; summarizing top {len(selected)}...")
+        else:
+            # Fallback: use the first few articles returned by the fetcher
+            selected = contents[:5]
+            print(f"[NEWS] No explicit company mentions found; summarizing top {len(selected)} returned articles...")
+
         summaries = []
-        for idx, article_text in enumerate(contents, start=1):
-            print(f"  - Summarizing article {idx}/{len(contents)}...")
+        for idx, article_text in enumerate(selected, start=1):
+            print(f"  - Summarizing article {idx}/{len(selected)}...")
             chunks = chunk_text(article_text)
             partial = []
-            
+
             for c in chunks:
-                summary = safe_summarize(summarizer, c)
+                summary = safe_summarize(None, c)
                 partial.append(summary)
-            
-            combined = " ".join(partial)
+
+            combined = " ".join([p for p in partial if p])
             if len(combined) > 100:
-                final_summary = safe_summarize(summarizer, combined)
+                final_summary = safe_summarize(None, combined)
             else:
                 final_summary = combined
-            
+
             summaries.append(final_summary)
-        
+
         return summaries
     except Exception as e:
         print(f"[ERROR] Error fetching news: {e}")
@@ -161,17 +199,14 @@ def generate_detailed_report(company_name, report):
     print("\n[GENERATING REPORT] Creating detailed analysis with AI...")
     
     try:
-        # Load API key from environment variable to avoid hardcoding secrets in source
-        api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+        # Use hardcoded API key (temporary)
+        api_key = OPENROUTER_API_KEY
         if not api_key:
-            msg = "OpenAI API key not found in environment variable OPENAI_API_KEY."
+            msg = "OpenAI API key not found. Please set OPENROUTER_API_KEY."
             print(f"[ERROR] {msg}")
             return f"Unable to generate detailed report: {msg}"
 
-        client = OpenAI(
-            base_url=os.environ.get('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1'),
-            api_key=api_key,
-        )
+        client = OpenAI(base_url=OPENAI_BASE_URL, api_key=api_key)
         
         # Prepare the prompt
         stock_info = report.get("stock_information", {})
@@ -210,7 +245,8 @@ Format the report professionally with clear sections and actionable insights.
             ]
         )
         
-        detailed_report = response.choices[0].message.content
+        detailed_content = getattr(response.choices[0].message, 'content', None)
+        detailed_report = detailed_content if isinstance(detailed_content, str) and detailed_content.strip() else "[No detailed report returned]"
         print("[REPORT] Detailed report generated successfully.")
         return detailed_report
     
@@ -260,26 +296,26 @@ def run_pipeline(query):
         report_filename = output_dir / f"report_{company.replace(' ', '_')}_{aggregated_report['timestamp'][:10]}.txt"
         
         with open(report_filename, 'w') as f:
-            f.write("=" * 80 + "\n")
-            f.write(f"FINANCIAL INTELLIGENCE REPORT: {company}\n")
-            f.write("=" * 80 + "\n\n")
+            f.write(str("=" * 80) + "\n")
+            f.write(str(f"FINANCIAL INTELLIGENCE REPORT: {company}\n"))
+            f.write(str("=" * 80) + "\n\n")
             
             f.write("STOCK INFORMATION:\n")
-            f.write("-" * 40 + "\n")
+            f.write(("-" * 40) + "\n")
             if stock_info:
                 for k, v in stock_info.items():
-                    f.write(f"{k}: {v}\n")
+                    f.write(f"{k}: {str(v)}\n")
             else:
                 f.write("No stock information available\n")
             
             f.write("\n\nRECENT NEWS SUMMARIES:\n")
-            f.write("-" * 40 + "\n")
+            f.write(("-" * 40) + "\n")
             for idx, summary in enumerate(news_summaries, 1):
-                f.write(f"\nArticle {idx}:\n{summary}\n")
+                f.write(f"\nArticle {idx}:\n{str(summary)}\n")
             
             f.write("\n\nDETAILED ANALYSIS:\n")
-            f.write("-" * 40 + "\n")
-            f.write(detailed_report)
+            f.write(("-" * 40) + "\n")
+            f.write(str(detailed_report))
         
         print(f"\n[SAVED] Report saved to: {report_filename}")
     except Exception as e:
