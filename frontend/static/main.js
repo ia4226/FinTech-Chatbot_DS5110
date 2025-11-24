@@ -544,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Make sure empty state is visible on page load
     const empty = document.querySelector('.empty-state');
     if (empty) empty.style.display = '';
-    
+
     if (dom.queryInput) dom.queryInput.focus();
 
     // Wire suggestion chips to populate input and trigger analysis
