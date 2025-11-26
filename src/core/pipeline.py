@@ -254,6 +254,39 @@ Format the report professionally with clear sections and actionable insights.
         print(f"[ERROR] Error generating detailed report: {e}")
         return f"Unable to generate detailed report: {e}"
 
+
+def get_stock_ticker(company_name: str) -> str:
+    """
+    Given a company name, ask Grok (via OpenRouter) to return ONLY the stock ticker.
+    Example: 'Microsoft' -> 'MSFT'
+    """
+    try:
+        client = get_openai_client()
+        if client is None:
+            return "[Ticker unavailable: OPENAI_API_KEY not set]"
+
+        prompt = (
+            f"Return ONLY the official stock market ticker symbol for the company '{company_name}'. "
+            "Do not return anything else. No explanations, no sentences, no punctuation, no extra words. "
+            "If the company is not publicly traded, return 'NONE'."
+        )
+
+        response = client.chat.completions.create(
+            model="x-ai/grok-4.1-fast",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=10,
+        )
+
+        ticker = getattr(response.choices[0].message, "content", "").strip()
+
+        # Sanitize output (ticker should be alphanumeric, usually uppercase)
+        ticker = ticker.upper().replace(" ", "").replace("\n", "")
+        return ticker
+
+    except Exception as e:
+        return f"[Ticker lookup failed: {e}]"
+
+
 def run_pipeline(query):
     """Main pipeline function that orchestrates all components."""
     print("=" * 80)
@@ -273,8 +306,10 @@ def run_pipeline(query):
     # Step 2: Fetch news
     news_summaries = fetch_news(company)
     
+    ticker = get_stock_ticker(company)
+    print(f"[INFO] Detected ticker symbol: {ticker}")
     # Step 3: Fetch stock information
-    stock_info = fetch_stock_info(company)
+    stock_info = fetch_stock_info(ticker)
     
     # Step 4: Aggregate information
     aggregated_report = aggregate_information(company, news_summaries, stock_info)

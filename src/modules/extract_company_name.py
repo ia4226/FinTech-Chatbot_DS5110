@@ -1,9 +1,19 @@
 import spacy
-import pandas as pd
 import re
 import unicodedata
+import os
+from typing import Optional
 from difflib import SequenceMatcher
-from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables (.env must be in project root)
+load_dotenv()
+
+# Optional OpenAI client for AI-backed extraction
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 # Load spaCy
 nlp = spacy.load("en_core_web_sm")
@@ -27,81 +37,71 @@ def clean_text(s):
     s = s.replace("\xa0", " ")
     return re.sub(r"[^a-zA-Z0-9\s.&-]", "", s).strip()
 
-# Load S&P 500 list
-def load_sp500():
-    try:
-        # Try multiple paths to find the CSV
-        possible_paths = [
-            Path("data/companies.csv"),
-            Path("../data/companies.csv"),
-            Path("../../data/companies.csv"),
-            Path("datasets/companies.csv"),
-        ]
-        
-        for path in possible_paths:
-            if path.exists():
-                df = pd.read_csv(path)
-                names = set(normalize_text(x) for x in df["Name"].astype(str).tolist())
-                return names
-        
-        print("[WARNING] Could not find companies.csv. Proceeding without company list.")
-        return set()
-    except Exception as e:
-        print(f"[WARNING] Error loading company list: {e}")
-        return set()
+# NOTE: removed CSV/company-list loading for simplicity. The extractor now
+# relies on spaCy NER, capitalization heuristics, and an optional AI fallback.
 
-ALL_COMPANIES = load_sp500()
-
-# ROBUST COMPANY EXTRACTOR
 def extract_company_name(query):
+    """Extract a company name from a user query.
+
+    Heuristics (in order):
+    1. spaCy NER (ORG)
+    2. Capitalized word heuristic
+    3. Optional AI-backed Grok extraction (if API key available)
+    """
     query_clean = clean_text(query)
-    q_low = query_clean.lower()
 
-    best_match = None
-    best_score = 0.0
+    # 1) spaCy NER
+    try:
+        doc = nlp(query_clean)
+        orgs = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
+        if orgs:
+            return normalize_text(orgs[0])
+    except Exception:
+        pass
 
-    # Search each company
-    for company in ALL_COMPANIES:
-        comp_raw = normalize_text(company)
-        comp_norm = comp_raw.lower()
-        tokens = comp_norm.split()
-
-        # Exact match
-        if comp_norm == q_low:
-            return comp_raw
-
-        # Token based match
-        for token in tokens:
-            if len(token) > 2 and token in q_low:
-                return comp_raw
-
-        # Substring match
-        if comp_norm in q_low:
-            return comp_raw
-
-        # Fuzzy match
-        score = SequenceMatcher(None, comp_norm, q_low).ratio()
-        if score > best_score:
-            best_score = score
-            best_match = comp_raw
-
-    # Use fuzzy match if above threshold
-    if best_score >= 0.7:
-        return best_match
-
-    # SpaCy fallback
-    doc = nlp(query_clean)
-    orgs = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
-    for org in orgs:
-        o_low = org.lower()
-        for company in ALL_COMPANIES:
-            if o_low in company.lower():
-                return company
-
-    # Capitalized fallback
+    # 2) Capitalized fallback
     caps = re.findall(r"\b[A-Z][a-zA-Z0-9.&-]+\b", query_clean)
     caps = [c for c in caps if c not in GARBAGE]
     if caps:
         return caps[0]
+
+    # 3) AI-backed fallback: ask Grok to extract the company
+    try:
+        api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
+        base_url = os.environ.get('OPENAI_BASE_URL')
+        if not api_key:
+            try:
+                from src.core import pipeline
+                api_key = getattr(pipeline, 'OPENROUTER_API_KEY', None)
+                base_url = getattr(pipeline, 'OPENAI_BASE_URL', base_url)
+            except Exception:
+                pass
+
+        if api_key and OpenAI is not None:
+            client = OpenAI(base_url=base_url or 'https://openrouter.ai/api/v1', api_key=api_key)
+            prompt = (
+                f"Extract the primary company or organization mentioned in the user query below.\n"
+                f"If there is no clear company, reply with the single token NONE.\n\n"
+                f"User query: {query}\n\n"
+                f"Respond with only the company name exactly as it should appear (no extra text)."
+            )
+
+            try:
+                resp = client.chat.completions.create(
+                    model="x-ai/grok-4.1-fast",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=60,
+                )
+                content = getattr(resp.choices[0].message, 'content', '') or ''
+                content = content.strip().strip('"')
+                if content and content.upper() != 'NONE':
+                    detected = normalize_text(content)
+                    if detected:
+                        return detected
+            except Exception:
+                pass
+
+    except Exception:
+        pass
 
     return None
