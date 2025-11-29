@@ -25,12 +25,11 @@ GARBAGE = {
     "Something", "Somthing", "Please", "Some", "Aomthing"
 }
 
-def normalize_text(s):
-    if not isinstance(s, str):
-        return ""
-    s = unicodedata.normalize("NFKD", s)
-    s = s.replace("\xa0", " ")
-    return s.strip()
+def normalize_text(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"[^a-zA-Z0-9 .&-]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text
 
 def clean_text(s):
     s = unicodedata.normalize("NFKD", s)
@@ -41,67 +40,40 @@ def clean_text(s):
 # relies on spaCy NER, capitalization heuristics, and an optional AI fallback.
 
 def extract_company_name(query):
-    """Extract a company name from a user query.
+    api_key = (
+        os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("OPENROUTER_API_KEY")
+    )
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 
-    Heuristics (in order):
-    1. spaCy NER (ORG)
-    2. Capitalized word heuristic
-    3. Optional AI-backed Grok extraction (if API key available)
-    """
-    query_clean = clean_text(query)
+    if not api_key or OpenAI is None:
+        return None
 
-    # 1) spaCy NER
+    client = OpenAI(base_url=base_url, api_key=api_key)
+
+    prompt = (
+        "Extract the company name from the query.\n"
+        "Output ONLY the name.\n"
+        "No punctuation. No quotes. No extra text.\n"
+        "If no company exists, return NONE.\n"
+        f"Query: {query}"
+    )
+
     try:
-        doc = nlp(query_clean)
-        orgs = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
-        if orgs:
-            return normalize_text(orgs[0])
-    except Exception:
-        pass
+        resp = client.chat.completions.create(
+            model="x-ai/grok-4.1-fast",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=20
+        )
+        content = getattr(resp.choices[0].message, "content", "")
+        if not content:
+            return None
+        raw = content.strip()
+    except:
+        return None
 
-    # 2) Capitalized fallback
-    caps = re.findall(r"\b[A-Z][a-zA-Z0-9.&-]+\b", query_clean)
-    caps = [c for c in caps if c not in GARBAGE]
-    if caps:
-        return caps[0]
+    if raw.upper() == "NONE":
+        return None
 
-    # 3) AI-backed fallback: ask Grok to extract the company
-    try:
-        api_key = os.environ.get('OPENAI_API_KEY') or os.environ.get('OPENROUTER_API_KEY')
-        base_url = os.environ.get('OPENAI_BASE_URL')
-        if not api_key:
-            try:
-                from src.core import pipeline
-                api_key = getattr(pipeline, 'OPENROUTER_API_KEY', None)
-                base_url = getattr(pipeline, 'OPENAI_BASE_URL', base_url)
-            except Exception:
-                pass
-
-        if api_key and OpenAI is not None:
-            client = OpenAI(base_url=base_url or 'https://openrouter.ai/api/v1', api_key=api_key)
-            prompt = (
-                f"Extract the primary company or organization mentioned in the user query below.\n"
-                f"If there is no clear company, reply with the single token NONE.\n\n"
-                f"User query: {query}\n\n"
-                f"Respond with only the company name exactly as it should appear (no extra text)."
-            )
-
-            try:
-                resp = client.chat.completions.create(
-                    model="x-ai/grok-4.1-fast",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=60,
-                )
-                content = getattr(resp.choices[0].message, 'content', '') or ''
-                content = content.strip().strip('"')
-                if content and content.upper() != 'NONE':
-                    detected = normalize_text(content)
-                    if detected:
-                        return detected
-            except Exception:
-                pass
-
-    except Exception:
-        pass
-
-    return None
+    name = normalize_text(raw)
+    return name if name else None

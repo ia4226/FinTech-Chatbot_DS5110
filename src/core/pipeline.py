@@ -139,26 +139,28 @@ def fetch_news(company_name):
         print(f"[ERROR] Error fetching news: {e}")
         return []
 
+
 def fetch_stock_info(company_name):
-    """Fetch stock information for the company."""
-    print(f"\n[FETCHING STOCK INFO] Retrieving stock data for {company_name}...")
+    print(f"[FETCHING STOCK INFO] Query received: {company_name}")
+
+    # Step 1: Ask LLM for ticker
+    ticker = get_stock_ticker(company_name)
+
+    # Step 2: Validate
+    if not ticker or ticker == "NONE" or len(ticker) > 5:
+        print("[WARNING] LLM ticker seems invalid. Falling back to YFinance search.")
+        ticker = company_name
+
+    print(f"[INFO] Using ticker: {ticker}")
+
     try:
-        # Try to get ticker from yfinance
-        ticker_search = yf.Ticker(company_name)
-        if not ticker_search.info or not ticker_search.info.get('symbol'):
-            # Try company name as is
-            ticker = company_name
-        else:
-            ticker = ticker_search.info.get('symbol', company_name)
-        
-        t = yf.Ticker(ticker)
-        info = t.info
-        
-        if not info or info.get('symbol') is None:
-            print(f"[WARNING] Could not fetch stock info for {company_name}")
+        yf_obj = yf.Ticker(ticker)
+        info = yf_obj.info
+
+        if not info or not info.get("symbol"):
+            print(f"[WARNING] YFinance could not fetch info for {ticker}")
             return None
-        
-        # Extract key information
+
         stock_data = {
             "ticker": info.get('symbol', 'N/A'),
             "longName": info.get('longName', 'N/A'),
@@ -174,12 +176,57 @@ def fetch_stock_info(company_name):
             "freeCashflow": info.get('freeCashflow', 'N/A'),
             "website": info.get('website', 'N/A'),
         }
-        
-        print("[STOCK] Stock data retrieved successfully.")
+
+        print("[STOCK] Data retrieved successfully.")
         return stock_data
+
     except Exception as e:
-        print(f"[ERROR] Error fetching stock info: {e}")
+        print(f"[ERROR] {e}")
         return None
+
+
+# def fetch_stock_info(company_name):
+#     """Fetch stock information for the company."""
+#     company_name = get_stock_ticker(company_name)
+#     print(f"\n[FETCHING STOCK INFO] Retrieving stock data for {company_name}...")
+#     try:
+#         # Try to get ticker from yfinance
+#         ticker_search = yf.Ticker(company_name)
+#         if not ticker_search.info or not ticker_search.info.get('symbol'):
+#             # Try company name as is
+#             ticker = company_name
+#         else:
+#             ticker = ticker_search.info.get('symbol', company_name)
+        
+#         t = yf.Ticker(ticker)
+#         info = t.info
+        
+#         if not info or info.get('symbol') is None:
+#             print(f"[WARNING] Could not fetch stock info for {company_name}")
+#             return None
+        
+#         # Extract key information
+#         stock_data = {
+#             "ticker": info.get('symbol', 'N/A'),
+#             "longName": info.get('longName', 'N/A'),
+#             "sector": info.get('sector', 'N/A'),
+#             "industry": info.get('industry', 'N/A'),
+#             "currentPrice": info.get('currentPrice', 'N/A'),
+#             "marketCap": info.get('marketCap', 'N/A'),
+#             "trailingPE": info.get('trailingPE', 'N/A'),
+#             "dividendYield": info.get('dividendYield', 'N/A'),
+#             "52WeekHigh": info.get('fiftyTwoWeekHigh', 'N/A'),
+#             "52WeekLow": info.get('fiftyTwoWeekLow', 'N/A'),
+#             "totalRevenue": info.get('totalRevenue', 'N/A'),
+#             "freeCashflow": info.get('freeCashflow', 'N/A'),
+#             "website": info.get('website', 'N/A'),
+#         }
+        
+#         print("[STOCK] Stock data retrieved successfully.")
+#         return stock_data
+#     except Exception as e:
+#         print(f"[ERROR] Error fetching stock info: {e}")
+#         return None
 
 def aggregate_information(company_name, news_summaries, stock_info):
     """Aggregate all information into a structured report."""
@@ -254,47 +301,40 @@ Format the report professionally with clear sections and actionable insights.
         print(f"[ERROR] Error generating detailed report: {e}")
         return f"Unable to generate detailed report: {e}"
 
-
 def get_stock_ticker(company_name: str) -> str:
-    """
-    Given a company name, ask Grok (via OpenRouter) to return ONLY the stock ticker.
-    Example: 'Microsoft' -> 'MSFT'
-    """
     try:
         client = get_openai_client()
         if client is None:
-            return "[Ticker unavailable: OPENAI_API_KEY not set]"
+            return "[Ticker unavailable: OPENROUTER_API_KEY not set]"
 
         prompt = (
-            f"Return ONLY the official stock market ticker symbol for the company '{company_name}'. "
-            "Do not return anything else. No explanations, no sentences, no punctuation, no extra words. "
-            "If the company is not publicly traded, return 'NONE'."
+            f"Return ONLY the official stock ticker symbol for the company '{company_name}'. "
+            "Respond ONLY as JSON: {\"ticker\":\"TSLA\"}. "
+            "Return {\"ticker\":\"NONE\"} if no ticker exists. "
+            "Do not guess. Do not invent symbols."
         )
 
         response = client.chat.completions.create(
             model="x-ai/grok-4.1-fast",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=10,
+            messages=[
+                {"role": "system", "content": "Strict JSON only. No text."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=20
         )
 
-        ticker = getattr(response.choices[0].message, "content", "").strip()
+        raw = getattr(response.choices[0].message, "content", "") or ""
+        raw = raw.strip()
 
-        # Sanitize output (ticker should be alphanumeric, usually uppercase)
-        ticker = ticker.upper().replace(" ", "").replace("\n", "")
-        return ticker
+        import json
+        ticker = json.loads(raw).get("ticker", "NONE")
+        return ticker.upper()
 
     except Exception as e:
         return f"[Ticker lookup failed: {e}]"
 
-
 def run_pipeline(query):
-    """Main pipeline function that orchestrates all components."""
-    print("=" * 80)
-    print("FINANCIAL INTELLIGENCE PIPELINE")
-    print("=" * 80)
     
-    # Step 1: Extract company name
-    print(f"\n[STEP 1] Extracting company name from query: '{query}'")
     company = extract_company_name(query)
     
     if not company:
@@ -308,6 +348,7 @@ def run_pipeline(query):
     
     ticker = get_stock_ticker(company)
     print(f"[INFO] Detected ticker symbol: {ticker}")
+    
     # Step 3: Fetch stock information
     stock_info = fetch_stock_info(ticker)
     
