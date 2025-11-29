@@ -1,4 +1,5 @@
 import json
+from src.core.db import save_stock_snapshot
 from src.modules.extract_company_name import extract_company_name
 from src.modules.news_fetcher import get_news_content
 from src.modules.stock_info_formatter import get_stock_info
@@ -178,6 +179,7 @@ def fetch_stock_info(company_name):
         }
 
         print("[STOCK] Data retrieved successfully.")
+        save_stock_snapshot(stock_data)
         return stock_data
 
     except Exception as e:
