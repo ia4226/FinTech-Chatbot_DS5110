@@ -2,22 +2,23 @@
 from __future__ import annotations
 
 import os
-import uuid
 
 import psycopg
 import pytest
 from dotenv import load_dotenv
 
-# Ensure .env is loaded so DATABASE_URL is available when running pytest directly.
+# Ensure .env is loaded so configuration values exist when running pytest directly.
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 pytestmark = pytest.mark.skipif(
-    not DATABASE_URL,
-    reason="DATABASE_URL is not configured; set it in the environment or .env to run DB tests.",
+    not DATABASE_URL or not OPENROUTER_API_KEY,
+    reason=(
+        "DATABASE_URL or OPENROUTER_API_KEY missing; configure both in .env to run integration DB tests."
+    ),
 )
-
 
 def _connect():
     """Return a psycopg connection using DATABASE_URL."""
@@ -34,38 +35,33 @@ def test_database_connection_responds_to_select_one():
     assert row is not None and row[0] == 1
 
 
-def test_save_stock_snapshot_inserts_row():
-    """Ensure save_stock_snapshot creates the table and inserts a row."""
-    from src.core.db import save_stock_snapshot
+def test_extract_real_stock_info_and_persist(monkeypatch):
+    """Resolve a real ticker, fetch stock info, and confirm it is stored in PostgreSQL."""
+    from src.core import pipeline
 
-    unique_ticker = f"TEST{uuid.uuid4().hex[:6].upper()}"
-    stock_payload = {
-        "ticker": unique_ticker,
-        "longName": "Integration Test Corp",
-        "sector": "Testing",
-        "industry": "Integration QA",
-        "currentPrice": 123.45,
-        "marketCap": 1_000_000,
-        "trailingPE": 21.5,
-        "dividendYield": None,
-        "52WeekHigh": 150.0,
-        "52WeekLow": 90.0,
-        "totalRevenue": 2_500_000,
-        "freeCashflow": 800_000,
-        "website": "https://example.com",
-    }
+    company = os.getenv("TEST_COMPANY", "JP Morgan Chase")
 
-    save_stock_snapshot(stock_payload)
+    resolved_ticker = pipeline.get_stock_ticker(company)
+    assert resolved_ticker and not resolved_ticker.startswith("["), "Ticker lookup failed"
+
+    # Avoid a second LLM call within fetch_stock_info by monkeypatching.
+    monkeypatch.setattr(pipeline, "get_stock_ticker", lambda _: resolved_ticker)
+
+    stock_payload = pipeline.fetch_stock_info(company)
+    assert stock_payload is not None, "fetch_stock_info returned no data"
+
+    ticker = stock_payload.get("ticker")
+    assert ticker and ticker != "N/A", "Stock payload missing ticker"
 
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT ticker FROM stock_snapshots WHERE ticker = %s ORDER BY captured_at DESC LIMIT 1",
-                (unique_ticker,),
+                (ticker,),
             )
             stored = cur.fetchone()
-            # Clean up so the test can run repeatedly without unbounded growth.
-            cur.execute("DELETE FROM stock_snapshots WHERE ticker = %s", (unique_ticker,))
+            # Clean up for deterministic reruns.
+            #cur.execute("DELETE FROM stock_snapshots WHERE ticker = %s", (ticker,))
             conn.commit()
 
-    assert stored is not None and stored[0] == unique_ticker
+    assert stored is not None and stored[0] == ticker
