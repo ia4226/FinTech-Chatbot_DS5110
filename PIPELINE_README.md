@@ -1,233 +1,156 @@
-# Financial Intelligence Pipeline
+# FinTech Chatbot - Pipeline Reference
 
-## Overview
+This document is the authoritative guide for the Python pipeline that powers both the CLI experience (`run.py`) and the FastAPI web tier (`frontend/app.py`). Use it to understand how every request traverses the system, what external services are touched, and how to operate or extend the stack safely.
 
-This pipeline integrates multiple components to provide comprehensive financial intelligence on companies:
+## Capabilities at a glance
 
-1. **Company Name Extraction** - Extracts company names from natural language queries
-2. **News Fetching** - Retrieves recent news articles about the company
-3. **Stock Information** - Fetches real-time stock data and financial metrics
-4. **News Summarization** - Uses AI to summarize long articles
-5. **Detailed Report Generation** - Creates comprehensive analysis using OpenAI/Grok API
+- Natural-language company extraction with spaCy, fuzzy heuristics, and an S&P 500 lookup table (`data/companies.csv`).
+- BBC news retrieval plus Grok-powered summarization to condense multi-paragraph articles into actionable bullets.
+- Real-time market data via `yfinance`, normalized into a predictable dictionary and persisted to PostgreSQL.
+- AI-assisted insight generation (OpenRouter Grok 4.1) that synthesizes metrics + news into a structured report.
+- FastAPI endpoints that expose the same pipeline to the single-page browser UI, including SQL-driven analysis cards backed by the snapshot database.
 
-## Architecture
+## Technology stack
 
-```
-User Input (Query)
-    ↓
-Extract Company Name
-    ↓
-├── Fetch News Articles
-│   └── Summarize with BART
-├── Fetch Stock Information
-│   └── Process via yfinance
-└── Aggregate Information
-    ↓
-Generate Detailed Report (OpenAI)
-    ↓
-Output Report (Console + File)
-```
+| Layer | Details |
+|-------|---------|
+| Language/runtime | Python 3.12 (virtual environment stored in `venv/`) |
+| Core libs | `fastapi`, `uvicorn`, `psycopg[binary]`, `yfinance`, `spacy`, `beautifulsoup4`, `openai` (for OpenRouter client) |
+| Frontend | Vanilla HTML/CSS/JS + Chart.js, bundled as a static SPA served by FastAPI |
+| Database | PostgreSQL (connection string supplied via `DATABASE_URL`) |
+| External APIs | BBC News pages, Yahoo Finance, OpenRouter (Grok models) |
 
-## Components
+## Environment & installation
 
-### 1. `extract_company_name.py`
-Extracts company names from user queries using:
-- Exact matching against S&P 500 list
-- Token-based matching
-- Fuzzy matching (SequenceMatcher)
-- spaCy NER (Named Entity Recognition)
-- Fallback capitalization detection
+1. **Create/activate a virtual environment**
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   python -m spacy download en_core_web_sm
+   ```
+3. **Configure `.env`** (copy from `.env.example`):
+   - `OPENROUTER_API_KEY`: key from https://openrouter.ai
+   - `OPENAI_BASE_URL`: default `https://openrouter.ai/api/v1`
+   - `DATABASE_URL`: e.g. `postgresql://postgres:postgres@localhost:5432/fintech`
 
-**Input**: Any user query (e.g., "Tell me about Apple")
-**Output**: Company name (e.g., "Apple Inc.")
+## Running the pipeline
 
-### 2. `news_fetcher.py`
-Fetches news articles about the company:
-- Searches BBC News
-- Extracts article links
-- Fetches and cleans article content
-- Implements error handling and timeouts
-
-**Input**: Company name
-**Output**: List of article texts (up to 5 articles)
-
-### 3. `stock_info_formatter.py`
-Fetches stock and financial information:
-- Company information (name, ticker, sector, industry)
-- Current market data (price, market cap, etc.)
-- Valuation metrics (P/E ratio, price-to-book, etc.)
-- Financial data (revenue, cash flow, etc.)
-- Dividend information
-
-**Input**: Company ticker or name
-**Output**: Dictionary of stock information
-
-### 4. `pipeline.py`
-Main orchestration script that:
-- Loads the BART summarization model
-- Chains all components together
-- Aggregates information
-- Generates detailed reports
-- Saves results to file
-
-## Installation
-
-1. Install required dependencies:
+### Interactive CLI
 ```bash
-pip install -r requirements.txt
+python run.py                 # shows a menu for extract/news/stock/full report
+python -m src.core.pipeline   # run the report workflow directly
 ```
+Each run produces `output/report_<company>_<date>.txt` containing stock metrics, news summaries, and the AI analysis transcript.
 
-Required packages:
-- `transformers` - For BART summarization
-- `torch` - PyTorch (required by transformers)
-- `spacy` - NLP for company extraction
-- `pandas` - Data processing
-- `bs4` - HTML parsing
-- `feedparser` - RSS feed parsing
-- `newspaper3k` - Article extraction
-- `yfinance` - Stock data
-- `openai` - LLM API access
-- `requests` - HTTP requests
-
-2. Download spaCy model:
+### FastAPI + SPA
 ```bash
-python -m spacy download en_core_web_sm
+uvicorn frontend.app:app --reload
+# Navigate to http://127.0.0.1:8000 to access Chat, Analysis, and (future) Reports tabs.
+```
+The frontend talks to the same pipeline functions through `/api/report`, `/api/news`, `/api/stock`, and `/api/analysis/*` endpoints.
+
+## Pipeline stages
+
+```
+User query
+  │
+  ├─ extract_company_name()      → spaCy NER + fuzzy matching + CSV lookup
+  │
+  ├─ fetch_news()
+  │     ├─ get_news_content()    → BBC scraping + BeautifulSoup
+  │     └─ summarize_with_grok() → OpenRouter Grok 4.1
+  │
+  ├─ fetch_stock_info()
+  │     ├─ get_stock_ticker()    → Grok JSON-only prompt
+  │     ├─ yfinance.Ticker       → Fundamental & market data
+  │     └─ save_stock_snapshot() → PostgreSQL `stock_snapshots`
+  │
+  ├─ aggregate_information()
+  └─ generate_detailed_report()  → Grok 4.1 chat completion
 ```
 
-3. Set up OpenAI/OpenRouter API key:
-   - Update the API key in `pipeline.py` (line with `api_key=...`)
-   - Get API key from: https://openrouter.ai
+### Key functions
 
-## Usage
+| Function | Location | Notes |
+|----------|----------|-------|
+| `extract_company_name` | `src/modules/extract_company_name.py` | Combines CSV lookup, spaCy NER, and fuzzy matching for robustness. |
+| `get_news_content` | `src/modules/news_fetcher.py` | Fetches up to five BBC articles, cleans HTML into paragraphs. |
+| `summarize_with_grok` | `src/core/pipeline.py` | Replaces on-device models with OpenRouter for consistent bullet outputs. |
+| `fetch_stock_info` | `src/core/pipeline.py` | Resolves the ticker via LLM, fetches `yfinance` info, persists a snapshot. |
+| `save_stock_snapshot` | `src/core/db.py` | Creates `stock_snapshots` table on demand and inserts JSON payloads. |
+| `generate_detailed_report` | `src/core/pipeline.py` | Builds multi-section analyst-style prose. |
 
-### Quick Start
+## Database contract
 
-```bash
-python pipeline.py
+`src/core/db.py` expects `DATABASE_URL` to point to PostgreSQL. The table schema:
+
+```
+stock_snapshots (
+    id SERIAL PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    long_name TEXT,
+    sector TEXT,
+    industry TEXT,
+    current_price DOUBLE PRECISION,
+    market_cap DOUBLE PRECISION,
+    trailing_pe DOUBLE PRECISION,
+    dividend_yield DOUBLE PRECISION,
+    week_52_high DOUBLE PRECISION,
+    week_52_low DOUBLE PRECISION,
+    total_revenue DOUBLE PRECISION,
+    free_cashflow DOUBLE PRECISION,
+    website TEXT,
+    raw_payload JSONB NOT NULL,
+    captured_at TIMESTAMPTZ DEFAULT NOW()
+)
 ```
 
-Then enter a company name or query:
-```
-Enter a company name or topic: Apple
-```
+Additional helpers expose curated insight queries:
 
-### Expected Output
+- `list_analysis_queries()` - metadata (id, title, description) used to render cards in the Analysis tab.
+- `run_analysis_query(query_id)` - executes one of ~12 SQL statements (top market cap, sector averages, latest ingestions, etc.) and returns rows/columns for the frontend.
 
-The pipeline will:
-1. Extract company name: "Apple Inc."
-2. Fetch and summarize recent news
-3. Fetch stock information
-4. Generate detailed analysis report
-5. Save report to file: `report_Apple_Inc_YYYY-MM-DD.txt`
+## FastAPI endpoints
 
-### Example Report Sections
+| Method & Path | Description |
+|---------------|-------------|
+| `GET /` | Serves `frontend/static/index.html` (SPA). |
+| `POST /api/report` | Full orchestration: extract → news → stock → DB → report → chart data. |
+| `POST /api/news` | Returns only the news summaries (shortcut for UI). |
+| `POST /api/stock` | Returns only the latest stock payload. |
+| `POST /api/stock/history` | 1-year price history for charting via `yfinance`. |
+| `GET /api/analysis/options` | Lists SQL insights available in the Analysis sidebar. |
+| `GET /api/analysis/run/{id}` | Executes the associated SQL query and returns tabular data. |
 
-- **Company Overview** - Brief description
-- **Stock Performance Analysis** - Price, metrics, valuation
-- **Market Position** - Industry and sector analysis
-- **Recent Events** - Summary of news
-- **Key Insights & Recommendations** - Analysis and outlook
-- **Risk Factors** - Potential risks
+Each endpoint wraps pipeline calls in exception handling and returns JSON suitable for the SPA.
 
-## Configuration
+## Testing strategy
 
-### Modify News Fetcher
-Edit `backend/news_fetcher.py`:
-- Change `get_bbc_news_content()` to use different news sources
-- Adjust article count in `get_news_content()` function
+| Test | Command | Purpose | Requirements |
+|------|---------|---------|--------------|
+| Component suite | `pytest tests/test_pipeline.py` | Validates extraction, news fetching, and stock formatting in isolation. | Internet for yfinance/BBC; no DB required. |
+| DB integration | `pytest tests/test_db_connection.py -vv` | Verifies PostgreSQL connectivity, LLM ticker lookup, snapshot persistence, and row retrieval. | `DATABASE_URL`, `OPENROUTER_API_KEY`, reachable PostgreSQL instance. |
 
-### Modify Stock Data
-Edit `backend/stock_info_formatter.py`:
-- Add/remove stock fields in the `sections` dictionary
-- Customize field extraction
-
-### Modify Report Generation
-Edit `pipeline.py`:
-- Adjust `safe_summarize()` for different summary lengths
-- Modify `generate_detailed_report()` prompt for different analysis
-- Change LLM model (currently: `x-ai/grok-4.1-fast`)
-
-## Error Handling
-
-The pipeline includes robust error handling for:
-- Missing company names
-- Network timeouts
-- Invalid stock tickers
-- API failures
-- Missing data fields
-
-Errors are logged with clear messages, and the pipeline attempts to continue with available data.
-
-## Performance
-
-- **Speed**: 2-5 minutes per report (depends on network and API response times)
-- **Model Loading**: BART model (~1.6GB) loads on first run
-- **API Calls**: 
-  - 1x OpenRouter API call for final report
-  - Multiple requests to BBC News and yfinance
+Use `pytest -k <name>` to focus on individual behaviours during development.
 
 ## Troubleshooting
 
-### No news articles found
-- Check internet connection
-- Company name might be too obscure
-- BBC News website structure might have changed
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `OPENROUTER_API_KEY not set` | `.env` missing or not loaded. | Copy `.env.example`, fill secrets, restart shell. |
+| `psycopg.errors.InvalidCatalogName` | Database referenced in `DATABASE_URL` does not exist. | Create the database (`createdb fintech`) before running the app/tests. |
+| News summaries are empty | BBC blocked request or company too niche. | Retry with VPN, provide broader query, or add another news source in `news_fetcher`. |
+| `/api/analysis/run/...` 500 error | Selected query requires rows but table is empty. | Run a few chat/report requests so `save_stock_snapshot` populates data. |
 
-### Stock info unavailable
-- Invalid company ticker
-- Market closed (try the next trading day)
-- Company might be delisted
+## Extending the pipeline
 
-### Summarization too slow
-- First run loads 1.6GB model (wait 1-2 minutes)
-- Subsequent runs are faster
-- Can disable summarization by modifying `pipeline.py`
+- **Additional insights**: Append SQL definitions to `ANALYSIS_QUERIES` in `src/core/db.py` and the Analysis UI picks them up automatically.
+- **New data sources**: Create modules in `src/modules/` and orchestrate them inside `pipeline.py` before aggregation.
+- **Alternate UI**: The same FastAPI endpoints can power another client (e.g., Streamlit or mobile) without touching pipeline code.
+- **Caching**: Wrap `fetch_news` or `fetch_stock_info` with a caching layer if rate limits become an issue.
 
-### API rate limits
-- OpenRouter has rate limits
-- Wait a few minutes before next request
-- Consider upgrading API plan
-
-## Data Sources
-
-1. **Company Names**: `datasets/companies.csv` (S&P 500)
-2. **News**: BBC News (https://www.bbc.com)
-3. **Stock Data**: Yahoo Finance via yfinance
-4. **Analysis**: OpenRouter API (Grok model)
-
-## Project Structure
-
-```
-Project/
-├── pipeline.py                      # Main orchestration
-├── main.py                          # Original simple demo
-├── test2deepseek.py                 # API test script
-├── requirements.txt                 # Python dependencies
-├── datasets/
-│   └── companies.csv               # S&P 500 companies
-└── backend/
-    ├── extract_company_name.py     # Company extraction
-    ├── news_fetcher.py             # News fetching
-    └── stock_info_formatter.py     # Stock data formatting
-```
-
-## Future Enhancements
-
-1. Multi-source news fetching (Reuters, Bloomberg, etc.)
-2. Sentiment analysis on news articles
-3. Historical stock price analysis
-4. Competitor analysis
-5. Earnings predictions
-6. ESG scoring
-7. Web UI/Dashboard
-8. Database for caching reports
-9. Scheduled report generation
-10. Email delivery of reports
-
-## License
-
-This project is for educational purposes.
-
-## Support
-
-For issues or questions, please refer to the error messages and troubleshooting section above.
+Keep this document close whenever you modify pipeline internals—the sections above outline every dependency chain you need to consider.
