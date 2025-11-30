@@ -153,284 +153,141 @@ User          Pipeline      Extract       News         Stock        LLM API
         │  Functions: │  │  Summaries  Data         │
         │  -load_sp500   │          │  │             │
         │  -normalize_   │  Function    Functions:   │
-        │   text         │  -get_news   -get_stock   │
-        │  -clean_text   │  -summarize  -format      │
-        │  -extract_     │             │             │
-        │   company_name │             │             │
-        └─────────────┘  └──────────┘  └─────────────┘
-                │             │              │
-                └─────────────┼──────────────┘
-                              │
-                        AGGREGATION
-                        (Combine data)
-                              │
-                      ┌───────────────┐
-                      │ AI Report Gen │
-                      │               │
-                      │ Input:        │
-                      │ -Stock info   │
-                      │ -News summary │
-                      │ -Company name │
-                      │               │
-                      │ Output:       │
-                      │ Detailed      │
-                      │ Report text   │
-                      └───────────────┘
-                              │
-                ┌─────────────┼──────────────┐
-                │             │              │
-                ▼             ▼              ▼
-            CONSOLE       FILE SAVE       COMPLETION
-            DISPLAY       (timestamped)   MESSAGE
-```
+        # Visual Reference
 
-## Pipeline Execution Timeline
+        Fresh ASCII diagrams describing how the November 2025 build is wired end-to-end.
 
-```
-START
-  │
-  ├─ [0.1s] Load configuration
-  │
-  ├─ [0.5s] Initialize extraction module
-  │           └─ Load S&P 500 list (companies.csv)
-  │
-  ├─ [1s]   User enters query
-  │
-  ├─ [0.1s] Extract company name
-  │           ├─ Try exact match
-  │           ├─ Try token match
-  │           ├─ Try fuzzy match
-  │           └─ Return: "Apple Inc"
-  │
-  ├─ [0.5s] Initialize models
-  │           ├─ Load spacy NER
-  │           ├─ Load BART summarizer (lazy)
-  │           └─ Initialize yfinance
-  │
-  ├─ [10-15s] Fetch news articles (parallel)
-  │           ├─ Search BBC News
-  │           ├─ Extract 5 article links
-  │           └─ Fetch article content
-  │
-  ├─ [1-3s]  Fetch stock data (parallel)
-  │           ├─ Query yfinance
-  │           ├─ Extract metrics
-  │           └─ Format by category
-  │
-  ├─ [30-60s] Summarize articles
-  │           ├─ Load BART model (first run only)
-  │           ├─ Chunk articles
-  │           ├─ Summarize each chunk
-  │           └─ Combine summaries
-  │
-  ├─ [1s]    Aggregate data
-  │           └─ Combine into report object
-  │
-  ├─ [10-30s] Generate AI report
-  │           ├─ Create prompt
-  │           ├─ Call OpenRouter API
-  │           ├─ Wait for response
-  │           └─ Format sections
-  │
-  ├─ [0.5s]  Save to file
-  │           └─ Create report_Company_Date.txt
-  │
-  ├─ [0.5s]  Display results
-  │           └─ Print report to console
-  │
-  └─ END
-  
-  Total time: 2-5 minutes (first run)
-             1-3 minutes (subsequent runs)
-```
+        ## 1. System architecture
 
-## Error Handling Flow
+        ```
+        ┌─────────────────────────────────────────────────────────────┐
+        │                        User Interfaces                      │
+        │                                                             │
+        │  CLI (run.py)        Browser SPA (frontend/static)          │
+        └────────────┬──────────────────────┬──────────────────────────┘
+                     │                      │
+                     │                      ▼
+                     │             FastAPI (frontend/app.py)
+                     │                      │
+                     └───────────────┬──────┴───────────────────────────
+                                     │
+                           src.core.pipeline module
+               ┌────────────┬────────┴────────┬──────────┬─────────────┐
+               │            │                 │          │             │
+        extract_company  fetch_news     fetch_stock   aggregate   generate
+           (spaCy +       (BBC +          info        information detailed
+           fuzz)          Grok)           (yfinance    (dict)     report
+                                           + DB)                  (Grok)
+               │            │                 │          │             │
+               ▼            ▼                 ▼          │             ▼
+         data/companies  OpenRouter     PostgreSQL  in-memory    OpenRouter
+                                             ▲        JSON            ▲
+                                             │                       │
+                                      Analysis SQL (src/core/db.py)
+                                             │
+                                        /api/analysis/*
+        ```
 
-```
-                    TRY OPERATION
-                         │
-              ┌──────────────────────────┐
-              │                          │
-              ▼                          ▼
-          SUCCESS?                   EXCEPTION?
-              │                          │
-              YES                        NO
-              │                          │
-              ▼                          ▼
-          CONTINUE           ┌──────────────────────┐
-                             │  Log Error Message   │
-                             │  - Component name    │
-                             │  - Error details     │
-                             └──────────────────────┘
-                                      │
-                             ┌────────────────────┐
-                             │ Can continue?      │
-                             └────────────────────┘
-                                   │         │
-                                  YES       NO
-                                   │         │
-                                   ▼         ▼
-                              CONTINUE    ABORT
-                              (partial)
-```
+        ## 2. Frontend request flow
 
-## Data Structure Diagrams
+        ```
+        User clicks "Run Report"
+            │
+            ▼
+        POST /api/report (query)
+            │
+            ├─ extract_company_name(query)
+            ├─ fetch_news(company)
+            ├─ fetch_stock_info(company)
+            │     ├─ get_stock_ticker() via Grok JSON prompt
+            │     ├─ yfinance lookup
+            │     └─ save_stock_snapshot() → PostgreSQL
+            ├─ aggregate_information()
+            └─ generate_detailed_report()
+                    │
+                    ▼
+        Response payload
+        { company, stock_info, news_summaries,
+          detailed_report, chart_data }
+            │
+            ▼
+        main.js renders stock card, price chart,
+        news timeline, and AI narrative.
+        ```
 
-### Stock Info Structure
-```
-stock_info = {
-    "Company Info": {
-        "symbol": "AAPL",
-        "longName": "Apple Inc",
-        "industry": "Consumer Electronics",
-        "sector": "Technology",
-        "website": "https://www.apple.com"
-    },
-    "Market Data": {
-        "currentPrice": 150.25,
-        "marketCap": 2500000000000,
-        "dayHigh": 151.50,
+        ## 3. Analysis tab flow
+
+        ```
+        main.js
+         ├─ on nav switch → fetch('/api/analysis/options')
+         │                   ▼
+         │             list_analysis_queries()
+         │                   ▼
+         │             send card metadata (id, title, desc)
+         │
+         └─ on card click  → fetch(`/api/analysis/run/${id}`)
+                             ▼
+                         run_analysis_query()
+                             │
+                             ├─ Ensure stock_snapshots table exists
+                             ├─ Run SQL (e.g., top_market_cap)
+                             └─ Return {columns, rows}
+
+        DOM renders a sticky table with headers derived from `columns`.
+        ```
+
+        ## 4. Database write and reuse
+
+        ```
+        fetch_stock_info()
+            │
+            ├─ ticker = get_stock_ticker(company)
+            ├─ info = yfinance.Ticker(ticker).info
+            └─ save_stock_snapshot(info)
+                    │
+                    ▼
+            INSERT INTO stock_snapshots (...)
+                    │
+                    ▼
+        Analysis queries (e.g., top_market_cap)
+                    │
+                    ▼
+        FastAPI /api/analysis/run/{id}
+                    │
+                    ▼
+        SPA Analysis table (latest insights)
+        ```
+
+        ## 5. Testing map
+
+        ```
+        pytest
+         │
+         ├─ tests/test_pipeline.py
+         │    ├─ import src.modules.*
+         │    ├─ exercise extractor/news/stock functions
+         │    └─ asserts formats without touching DB
+         │
+         └─ tests/test_db_connection.py   (requires .env secrets)
+              ├─ ensure psycopg can SELECT 1
+              ├─ run get_stock_ticker() via OpenRouter
+              ├─ fetch_stock_info() (monkeypatch ticker to avoid double LLM hit)
+              └─ confirm row exists in stock_snapshots
+        ```
+
+        ## 6. Lifecycle timeline (per query)
+
+        ```
+        0.0s  : CLI/SPA receives text
+        0.1s  : extract_company_name resolves canonical label
+        0.5s  : get_stock_ticker Grok JSON call
+        1.0s  : yfinance info + DB insert
+        1.5s  : BBC scraping + Grok summaries (parallel per article)
+        3.0s  : aggregate_information builds payload
+        3.2s  : generate_detailed_report Grok call (structured prompt)
+        3.8s  : Response returned to CLI/SPA
+        4.0s+ : UI renders cards + tables, CLI writes output/*.txt
+        ```
+
+        Keep these diagrams nearby when reasoning about changes—they reflect the authoritative wiring for the FastAPI UI, the AI pipeline, and the persistence layer.
         "dayLow": 149.00,
-        "regularMarketChangePercent": 1.25
-    },
-    "Valuation Metrics": {
-        "trailingPE": 28.5,
-        "priceToBook": 45.2,
-        "beta": 1.15
-    },
-    # ... more sections
-}
-```
-
-### Aggregated Report Structure
-```
-report = {
-    "company_name": "Apple Inc",
-    "stock_information": {
-        "Company Info": {...},
-        "Market Data": {...},
-        # ... all stock data
-    },
-    "news_summaries": [
-        "Summary of article 1...",
-        "Summary of article 2...",
-        "Summary of article 3..."
-    ],
-    "timestamp": "2025-11-23T10:30:45.123456"
-}
-```
-
-## File I/O Diagram
-
-```
-INPUT FILES
-    │
-    ├─ datasets/companies.csv
-    │   └─ Used by: extract_company_name
-    │       └─ Purpose: Load S&P 500 list
-    │
-    └─ (None - data from APIs)
-
-OUTPUT FILES
-    │
-    ├─ report_<COMPANY>_<DATE>.txt
-    │   ├─ Created by: pipeline.py
-    │   ├─ Location: Project root
-    │   ├─ Format: Text (plaintext)
-    │   └─ Contains:
-    │       ├─ Stock Information section
-    │       ├─ Recent News Summaries section
-    │       └─ Detailed Analysis section
-    │
-    └─ Console output (also displayed)
-```
-
-## Component Dependency Graph
-
-```
-pipeline.py (Main)
-    │
-    ├─ extract_company_name.py
-    │   ├─ spacy (NLP)
-    │   ├─ pandas (CSV loading)
-    │   └─ difflib (Fuzzy matching)
-    │
-    ├─ news_fetcher.py
-    │   ├─ requests (HTTP)
-    │   ├─ BeautifulSoup (HTML parsing)
-    │   ├─ feedparser (RSS parsing)
-    │   └─ newspaper3k (Article extraction)
-    │
-    ├─ stock_info_formatter.py
-    │   └─ yfinance (Stock data)
-    │
-    ├─ transformers (BART)
-    │   └─ torch (Deep learning)
-    │
-    └─ openai (LLM API)
-        └─ requests (HTTP)
-```
-
-## State Machine Diagram
-
-```
-    START
-      │
-      ▼
-  IDLE
-    │
-    │─ User input provided
-    │
-    ▼
-  PROCESSING_INPUT
-    │
-    │─ Extract company
-    │
-    ▼
-  COMPANY_EXTRACTED / NO_COMPANY_FOUND
-    │                        │
-    (success)            (error)
-    │                        │
-    ▼                        ▼
-  FETCHING_DATA      ERROR_HANDLER
-    │                        │
-    ├─ Fetch news           │
-    ├─ Fetch stock          │
-    │                        │
-    ▼                        ▼
-  SUMMARIZING         ABORT / RETRY
-    │
-    │─ Summarize articles
-    │
-    ▼
-  AGGREGATING
-    │
-    │─ Combine data
-    │
-    ▼
-  GENERATING_REPORT
-    │
-    │─ Call AI API
-    │
-    ▼
-  REPORT_GENERATED
-    │
-    │─ Save to file
-    │─ Display output
-    │
-    ▼
-  COMPLETE
-    │
-    └─ Return to IDLE
-```
-
-These diagrams provide visual understanding of:
-- System architecture and components
-- Data flow through the pipeline
-- Component interactions
-- Execution timeline
-- Error handling strategy
-- Data structures
-- File I/O operations
-- Component dependencies
-- State transitions

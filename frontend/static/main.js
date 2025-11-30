@@ -6,6 +6,11 @@ const state = {
     currentReport: null,
     isLoading: false,
     messages: [],
+    activeView: 'chat',
+    analysisOptions: [],
+    analysisLoaded: false,
+    selectedAnalysisId: null,
+    analysisResult: null,
 };
 
 // Track active Chart.js instance so we can refresh on theme changes
@@ -21,8 +26,17 @@ const dom = {
     reportModalTitle: document.getElementById('report-modal-title'),
     modalDownloadBtn: document.getElementById('modal-download-btn'),
     toastContainer: document.getElementById('toast-container'),
-    loadingIndicator: document.getElementById('loading-indicator')
+    loadingIndicator: document.getElementById('loading-indicator'),
+    chatContainer: document.querySelector('.chat-container'),
+    analysisContainer: document.getElementById('analysis-container'),
+    analysisOptionsList: document.getElementById('analysis-options-list'),
+    analysisResultTitle: document.getElementById('analysis-result-title'),
+    analysisResultDescription: document.getElementById('analysis-result-description'),
+    analysisResultBody: document.getElementById('analysis-result-body'),
+    analysisResultContent: document.getElementById('analysis-result-content'),
+    analysisPlaceholder: document.getElementById('analysis-placeholder'),
 };
+const defaultAnalysisPlaceholderHTML = dom.analysisPlaceholder ? dom.analysisPlaceholder.innerHTML : '';
 
 function showEmptyState() {
     // If empty state exists, ensure it's visible when there are no messages
@@ -61,6 +75,144 @@ async function post(url, body) {
         body: JSON.stringify(body)
     });
     return res.json();
+}
+
+async function fetchAnalysisOptions() {
+    if (state.analysisLoaded) return;
+    try {
+        const res = await fetch('/api/analysis/options');
+        const data = await res.json();
+        state.analysisOptions = Array.isArray(data.options) ? data.options : [];
+        state.analysisLoaded = true;
+        renderAnalysisOptions();
+    } catch (error) {
+        console.error('Failed to load analysis options', error);
+        showToast('Unable to load analysis options', 'error');
+        if (dom.analysisOptionsList) {
+            dom.analysisOptionsList.innerHTML = '<div class="analysis-placeholder">Unable to load analysis cards.</div>';
+        }
+    }
+}
+
+function renderAnalysisOptions() {
+    if (!dom.analysisOptionsList) return;
+    dom.analysisOptionsList.innerHTML = '';
+
+    if (!state.analysisOptions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'analysis-placeholder';
+        empty.textContent = 'No analysis options available yet.';
+        dom.analysisOptionsList.appendChild(empty);
+        return;
+    }
+
+    state.analysisOptions.forEach((option) => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'analysis-option-card' + (state.selectedAnalysisId === option.id ? ' active' : '');
+        card.dataset.analysisId = option.id;
+        card.innerHTML = `
+            <h4>${option.title}</h4>
+            <p>${option.description}</p>
+        `;
+        dom.analysisOptionsList.appendChild(card);
+    });
+}
+
+function setAnalysisResultLoading(isLoading) {
+    if (!dom.analysisResultContent) return;
+    if (isLoading) {
+        dom.analysisResultContent.innerHTML = `
+            <div class="analysis-loading">
+                <div class="spinner"></div>
+                <p>Running analysis...</p>
+            </div>
+        `;
+        if (dom.analysisPlaceholder) dom.analysisPlaceholder.style.display = 'none';
+    }
+}
+
+async function runAnalysisQuery(queryId) {
+    if (!queryId) return;
+    state.selectedAnalysisId = queryId;
+    renderAnalysisOptions();
+    if (dom.analysisResultContent) dom.analysisResultContent.innerHTML = '';
+    if (dom.analysisPlaceholder) {
+        dom.analysisPlaceholder.innerHTML = defaultAnalysisPlaceholderHTML;
+        dom.analysisPlaceholder.style.display = 'none';
+    }
+    setAnalysisResultLoading(true);
+
+    try {
+        const res = await fetch(`/api/analysis/run/${queryId}`);
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const data = await res.json();
+        state.analysisResult = data;
+        renderAnalysisResult(data);
+        showToast('Analysis ready', 'success');
+    } catch (error) {
+        console.error('Failed to run analysis', error);
+        if (dom.analysisResultContent) dom.analysisResultContent.innerHTML = '';
+        if (dom.analysisPlaceholder) {
+            dom.analysisPlaceholder.style.display = '';
+            dom.analysisPlaceholder.textContent = 'Unable to run the selected analysis. Please try again later.';
+        }
+        showToast('Unable to run analysis', 'error');
+    }
+}
+
+function renderAnalysisResult(result) {
+    if (!dom.analysisResultContent) return;
+    const rows = Array.isArray(result.rows) ? result.rows : [];
+    const columns = Array.isArray(result.columns) ? result.columns : [];
+
+    if (dom.analysisPlaceholder) dom.analysisPlaceholder.style.display = rows.length ? 'none' : '';
+    if (dom.analysisResultTitle) dom.analysisResultTitle.textContent = result.title || 'Analysis Result';
+    if (dom.analysisResultDescription) dom.analysisResultDescription.textContent = result.description || '';
+
+    if (!rows.length || !columns.length) {
+        if (dom.analysisPlaceholder) {
+            dom.analysisPlaceholder.style.display = '';
+            dom.analysisPlaceholder.textContent = 'No data returned for this analysis.';
+        }
+        dom.analysisResultContent.innerHTML = '';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'analysis-table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    columns.forEach((col) => {
+        const th = document.createElement('th');
+        th.textContent = col.replace(/_/g, ' ');
+        headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        columns.forEach((col) => {
+            const td = document.createElement('td');
+            const value = row[col];
+            td.textContent = value === null || value === undefined ? '—' : String(value);
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    dom.analysisResultContent.innerHTML = '';
+    dom.analysisResultContent.appendChild(table);
+}
+
+function switchView(view) {
+    state.activeView = view;
+    if (dom.chatContainer) dom.chatContainer.style.display = view === 'chat' ? 'flex' : 'none';
+    if (dom.analysisContainer) dom.analysisContainer.style.display = view === 'analysis' ? 'flex' : 'none';
 }
 
 function addAnalysisCard(title, data, type) {
@@ -602,6 +754,17 @@ document.querySelectorAll('.nav-item').forEach((item) => {
         e.preventDefault();
         document.querySelectorAll('.nav-item').forEach((i) => i.classList.remove('active'));
         item.classList.add('active');
+
+        const action = item.dataset.action || 'chat';
+        if (action === 'analysis') {
+            switchView('analysis');
+            fetchAnalysisOptions();
+        } else if (action === 'chat') {
+            switchView('chat');
+        } else {
+            switchView('chat');
+            showToast('Reports view is coming soon.', 'info');
+        }
     });
 });
 
@@ -615,6 +778,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dom.queryInput) dom.queryInput.focus();
 
+    switchView('chat');
+    fetchAnalysisOptions();
+
     // Wire suggestion chips to populate input and trigger analysis
     document.querySelectorAll('.suggestion-chip').forEach((chip) => {
         chip.addEventListener('click', (e) => {
@@ -626,4 +792,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+if (dom.analysisOptionsList) {
+    dom.analysisOptionsList.addEventListener('click', (e) => {
+        const card = e.target.closest('.analysis-option-card');
+        if (!card) return;
+        const analysisId = card.dataset.analysisId;
+        runAnalysisQuery(analysisId);
+    });
+}
 

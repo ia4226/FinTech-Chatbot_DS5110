@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Import pipeline functions after updating sys.path
 from src.core import pipeline
+from src.core.db import list_analysis_queries, run_analysis_query
 from src.modules.extract_company_name import extract_company_name
 
 app = FastAPI(title="FinTech Chatbot Frontend")
@@ -139,6 +140,27 @@ async def api_report(payload: QueryPayload):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/options")
+async def api_analysis_options():
+    try:
+        return {"options": list_analysis_queries()}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analysis/run/{query_id}")
+async def api_analysis_run(query_id: str):
+    try:
+        result = run_analysis_query(query_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

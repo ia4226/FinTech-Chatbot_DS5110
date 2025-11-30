@@ -1,359 +1,110 @@
-# Pipeline Build Summary
+# Project Summary
 
-## What Was Built
+The FinTech Chatbot has evolved from a standalone script into a full stack application that combines AI-assisted research, a browser-based workflow, and persistent analytics. This document captures the current scope (November 2025) so stakeholders can quickly understand what exists, how it fits together, and where to extend it.
 
-A comprehensive **Financial Intelligence Pipeline** that transforms user queries into detailed financial reports through integrated data collection, processing, and AI analysis.
+## What the system delivers
 
-## Key Components
+1. **Pipeline Orchestrator (`src/core/pipeline.py`)**
+    - Runs the multi-step workflow (extract → news → stock → aggregate → AI analysis).
+    - Persists outputs to disk (`output/report_*.txt`) and to PostgreSQL.
+    - Wraps third-party calls (OpenRouter, BBC, yfinance) with defensive logging.
 
-### 1. **Pipeline Orchestrator** (`pipeline.py`)
-- Main entry point that coordinates all components
-- Handles data aggregation and report generation
-- Saves reports to files
-- Features: Error handling, progress logging, file export
+2. **Database + Insight Layer (`src/core/db.py`)**
+    - Automatically creates `stock_snapshots` and stores every yfinance payload for auditability.
+    - Exposes 12+ predefined SQL analyses (top market cap, sector averages, recency checks, etc.).
+    - Powers the Analysis tab inside the UI.
 
-### 2. **Company Name Extraction** (`backend/extract_company_name.py`)
-- Converts natural language queries to company names
-- Uses multiple matching strategies (exact, fuzzy, NER)
-- Loads S&P 500 company database
-- Fallback mechanisms for robustness
+3. **FastAPI Gateway (`frontend/app.py`)**
+    - Serves the static SPA (`frontend/static/*`).
+    - Provides JSON endpoints (`/api/report`, `/api/news`, `/api/stock`, `/api/analysis/*`).
+    - Handles ticker history lookups for charting via `yfinance`.
 
-### 3. **News Fetcher** (`backend/news_fetcher.py`)
-- Fetches recent news articles about companies
-- Sources: BBC News
-- Features: URL extraction, content cleaning, error handling
-- Returns: List of article texts (up to 5)
+4. **Single-page Frontend (`frontend/static/index.html`, `main.js`, `style.css`)**
+    - Chat tab for conversational requests (news, stock breakdown, chart).
+    - Analysis tab that lists SQL-driven cards and renders tables dynamically.
+    - Reports tab placeholder for future storytelling output.
 
-### 4. **Stock Information Formatter** (`backend/stock_info_formatter.py`)
-- Retrieves real-time stock and financial data
-- Source: Yahoo Finance (via yfinance)
-- Organizes data into categories
-- Returns: Structured dictionary of metrics
+5. **Test Harness (`tests/`)**
+    - `test_pipeline.py` validates extractor/news/stock components.
+    - `test_db_connection.py` is an opt-in integration suite that exercises PostgreSQL persistence plus OpenRouter ticker resolution.
+    - `ticker_test.py` provides lightweight sanity checks around ticker handling.
 
-### 5. **AI Report Generator**
-- Uses OpenRouter API (Grok model)
-- Creates detailed analysis reports
-- Includes: Company overview, stock analysis, market position, news summary, insights, risk factors
-- Saves reports to timestamped files
-
-## Data Flow
+## High-level architecture
 
 ```
-User Query → Company Extraction → [Parallel]
-                                    ├─ News Fetching → Summarization
-                                    └─ Stock Data Fetching
-                                           ↓
-                                    Data Aggregation
-                                           ↓
-                                    AI Report Generation
-                                           ↓
-                                    Output (Console + File)
+User (CLI or Browser)
+    │
+    ├── CLI (run.py) ──> src.core.pipeline ──> output/*.txt
+    │
+    └── Browser SPA ──> FastAPI (frontend/app.py)
+                                ├─ /api/report ──> pipeline functions
+                                ├─ /api/news   ──> fetch_news
+                                ├─ /api/stock  ──> fetch_stock_info
+                                └─ /api/analysis/* ──> src.core.db SQL
+
+Pipeline internals
+    ├─ extract_company_name (spaCy + CSV + heuristics)
+    ├─ fetch_news (BBC + OpenRouter summaries)
+    ├─ get_stock_ticker (OpenRouter JSON-only prompt)
+    ├─ fetch_stock_info (yfinance + snapshot persistence)
+    ├─ aggregate_information (in-memory dict)
+    └─ generate_detailed_report (Grok 4.1 completion)
 ```
 
-## Features Implemented
-
-✓ Natural language company name extraction  
-✓ Multi-source news fetching  
-✓ Real-time stock data retrieval  
-✓ AI-powered summarization  
-✓ Detailed report generation  
-✓ File export with timestamps  
-✓ Error handling and logging  
-✓ Component testing framework  
-✓ Comprehensive documentation  
-✓ Interactive menu system  
-
-## Usage
-
-### Quick Start
-```bash
-python pipeline.py
-```
-
-Enter a company name when prompted, and wait for the report.
-
-### Interactive Menu
-```bash
-python start.py
-```
-
-Choose from options:
-1. Generate Financial Report
-2. Extract Company Name
-3. Fetch News
-4. Get Stock Information
-5. Run Tests
-6. View Documentation
-
-### Test Components
-```bash
-python test_pipeline.py
-```
-
-Validates each component independently.
-
-## File Structure
-
-```
-Project/
-├── pipeline.py                    # Main orchestrator
-├── start.py                      # Interactive menu
-├── test_pipeline.py              # Component tests
-├── main.py                       # Original version
-├── requirements.txt              # Dependencies
-├── PIPELINE_README.md            # Full documentation
-├── USAGE_GUIDE.md               # Usage instructions
-├── ARCHITECTURE.md              # Technical design
-├── QUICK_REFERENCE.md           # Quick reference
-├── PROJECT_SUMMARY.md           # This file
-├── backend/
-│   ├── extract_company_name.py
-│   ├── news_fetcher.py
-│   └── stock_info_formatter.py
-├── datasets/
-│   └── companies.csv            # S&P 500 list
-└── frontend/ (empty)
-```
-
-## Dependencies
-
-**Core**:
-- transformers (BART summarization)
-- torch (Deep learning)
-- spacy (NLP)
-- pandas (Data processing)
-- yfinance (Stock data)
-- openai (LLM API)
-
-**Web & Parsing**:
-- requests (HTTP)
-- beautifulsoup4 (HTML)
-- feedparser (RSS)
-- newspaper3k (Article extraction)
-
-**Utils**:
-- numpy (Numerics)
-- lxml (XML/HTML)
-
-All packages are pre-installed in the virtual environment.
-
-## Configuration
-
-### API Key
-Edit `pipeline.py` line 145:
-```python
-api_key="sk-or-v1-YOUR-KEY-HERE"
-```
-Get from: https://openrouter.ai
-
-### LLM Model
-Edit `pipeline.py` line 148:
-```python
-model="x-ai/grok-4.1-fast"
-```
-
-### News Count
-Edit `pipeline.py` line 80:
-```python
-contents = contents[:5]
-```
-
-## Output Example
-
-**Generated Report File**: `report_Apple_Inc_2025-11-23.txt`
-
-**Contains**:
-- Stock Information (ticker, price, market cap, sector, etc.)
-- Recent News Summaries (3-5 summarized articles)
-- Detailed AI Analysis:
-  - Company Overview
-  - Stock Performance Analysis
-  - Market Position
-  - Recent Events
-  - Key Insights & Recommendations
-  - Risk Factors
-
-## Performance
-
-| Component | Time |
-|-----------|------|
-| Company extraction | < 0.1s |
-| News fetching | 10-15s |
-| Stock data | 1-3s |
-| Summarization | 30-60s |
-| Report generation | 10-30s |
-| **Total (first run)** | **2-5 min** |
-| **Total (cached)** | **1-3 min** |
-
-## Testing
-
-Run component tests:
-```bash
-python test_pipeline.py
-```
-
-Tests validate:
-- Company name extraction
-- Stock info retrieval
-- News fetching
-- Full pipeline integration
-
-## Error Handling
-
-Robust error handling for:
-- Network timeouts
-- Invalid company names
-- Missing stock data
-- API rate limits
-- Missing articles
-- Invalid tickers
-
-Each error is logged clearly and pipeline attempts to continue with available data.
-
-## Documentation Included
-
-1. **PIPELINE_README.md** - Complete technical documentation
-2. **USAGE_GUIDE.md** - Step-by-step usage instructions
-3. **ARCHITECTURE.md** - System design and integration details
-4. **QUICK_REFERENCE.md** - Quick command reference
-5. **PROJECT_SUMMARY.md** - This summary document
-
-## Key Design Decisions
-
-### Modular Architecture
-- Each component is independent
-- Easy to test, modify, or replace
-- Parallel data collection (news + stock)
-
-### Error Recovery
-- Graceful degradation if news unavailable
-- Continue with partial data
-- Clear error messages to user
-
-### Scalability
-- Can process multiple companies
-- Cacheable stock data
-- Asynchronous-ready design
-
-### User Experience
-- Interactive menu system
-- Progress logging
-- File export with timestamps
-- Clear documentation
-
-## Future Enhancement Ideas
-
-### Phase 1
-- Add more news sources (Reuters, Bloomberg)
-- Sentiment analysis on articles
-- Competitor comparison
-
-### Phase 2
-- Web UI/Dashboard
-- Database backend
-- Scheduled report generation
-
-### Phase 3
-- Email delivery
-- Historical analysis
-- Earnings predictions
-
-### Phase 4
-- ESG scoring
-- Portfolio analysis
-- Real-time alerts
-
-## How to Extend
-
-### Add New Data Source
-```python
-def fetch_reuters_news(company):
-    # Implementation
-    return articles
-```
-
-### Add New Analysis
-```python
-def analyze_sentiment(articles):
-    # Implementation
-    return sentiment_scores
-```
-
-### Add Caching
-```python
-def cache_result(key, data):
-    # Implementation
-    pass
-```
-
-## System Requirements
-
-- **OS**: Windows, Linux, or macOS
-- **Python**: 3.8+
-- **RAM**: 2GB+ (for BART model)
-- **Disk**: ~2GB (for models)
-- **Internet**: Required
-- **API Key**: OpenRouter (free tier available)
-
-## Troubleshooting
-
-**Issue**: Slow on first run  
-**Solution**: BART model loads (1-2 min), next runs are faster
-
-**Issue**: No articles found  
-**Solution**: Check internet connection or try different company
-
-**Issue**: Stock data "N/A"  
-**Solution**: Verify ticker symbol is correct
-
-**Issue**: API errors  
-**Solution**: Check API key and rate limits
-
-## Getting Started
-
-1. Read `QUICK_REFERENCE.md` (2 min read)
-2. Run `python pipeline.py` (2-5 min execution)
-3. Enter "Apple" when prompted
-4. Review generated report
-5. Customize as needed
-
-## Contact & Support
-
-For issues:
-1. Check error messages
-2. Read documentation
-3. Run `test_pipeline.py`
-4. Check API key is valid
-5. Verify internet connection
-
-## Success Criteria
-
-✓ Accepts natural language queries  
-✓ Extracts company names accurately  
-✓ Fetches relevant news articles  
-✓ Retrieves stock information  
-✓ Summarizes articles with BART  
-✓ Generates detailed AI reports  
-✓ Saves reports with timestamps  
-✓ Handles errors gracefully  
-✓ Provides clear documentation  
-✓ Allows customization  
-
-## Summary
-
-The Financial Intelligence Pipeline is a production-ready system that:
-- Takes user input queries
-- Extracts company names intelligently
-- Fetches multi-source data (news + stock)
-- Processes and summarizes information
-- Generates detailed AI-powered reports
-- Exports results to files
-
-All components are modular, testable, and well-documented, making it easy to understand, use, and extend.
-
----
-
-**Built**: November 23, 2025  
-**Status**: Complete & Functional  
-**Version**: 1.0  
-**Ready for**: Immediate Use
+## Data + configuration
+
+- `.env` drives every secret: `OPENROUTER_API_KEY`, `OPENAI_BASE_URL`, and `DATABASE_URL`.
+- `data/companies.csv` contains the canonical S&P 500 list for extraction.
+- PostgreSQL stores historical stock snapshots plus feeds the Analysis queries.
+- Reports are stored locally inside `output/` for traceability.
+
+## External dependencies
+
+| Purpose | Service/library |
+|---------|-----------------|
+| NLP extraction | spaCy `en_core_web_sm`, `difflib`, `pandas` |
+| News content | `requests`, `beautifulsoup4`, `feedparser` scraping BBC results |
+| News summarization | OpenRouter (Grok 4.1 fast) via `openai` SDK |
+| Stock data | `yfinance` + `pandas` |
+| Persistence | PostgreSQL via `psycopg[binary]` |
+| UI | FastAPI + vanilla JS + Chart.js |
+
+## Quality and validation
+
+- **Automated tests**: `pytest tests/test_pipeline.py` (fast), `pytest tests/test_db_connection.py` (integration, requires API keys + DB). Both live in CI-ready form.
+- **Manual validation**: Launch FastAPI + SPA to confirm chat and analysis flows; the Analysis tab only shows data once snapshots have been persisted.
+- **Logging**: Every pipeline phase prints bracketed messages (e.g., `[FETCHING NEWS]`, `[DB]`) to simplify debugging inside the CLI and server logs.
+
+## Operating the system
+
+1. Install deps and configure `.env` (see `PIPELINE_README.md`).
+2. Run `uvicorn frontend.app:app --reload` for the UI or `python run.py` for CLI.
+3. To warm the database, run a few chat/report requests so that `stock_snapshots` gains rows.
+4. Use the Analysis tab to confirm SQL queries succeed (no data returns `No data returned for this analysis`).
+5. Execute `pytest` suites before pushing changes to keep regressions out.
+
+## Recently completed milestones
+
+- ✅ Persist every stock request into PostgreSQL and surface 12 canned insights.
+- ✅ Ship a modern SPA with chat, charts, and database-backed analytics under the Analysis sidebar tab.
+- ✅ Wire FastAPI routes that mirror the CLI pipeline, enabling both interfaces to stay in sync.
+- ✅ Add integration tests that call the real ticker lookup path and assert DB writes.
+- ✅ Normalize project documentation (this file + PROJECT_STRUCTURE + PIPELINE_README).
+
+## Known limitations / next steps
+
+1. Reports tab currently displays a placeholder; future work could embed the AI transcript there.
+2. BBC-only news source occasionally misses niche tickers; consider layering in Reuters or Yahoo Finance news APIs.
+3. Database writes happen per request; a background scheduler or job queue could optimize throughput for batch workloads.
+4. Caching ticker lookups would lower the number of OpenRouter calls made in a single session.
+5. Add alerting or retry logic if OpenRouter or yfinance temporarily fail.
+
+## How to contribute
+
+1. Review `PROJECT_STRUCTURE.md` for navigation.
+2. Create a feature branch from `dev`.
+3. Update docs/tests alongside code.
+4. Run both pytest suites and, when relevant, manual UI verification.
+5. Open a PR summarizing functional changes plus any DB migrations or env additions.
+
+Use this summary as the grounding document when briefing stakeholders or onboarding collaborators; it captures both the functional wins and the guardrails needed to keep the system healthy.

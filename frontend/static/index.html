@@ -121,6 +121,29 @@
                     <p class="input-helper">Press Enter or click the send button to analyze</p>
                 </div>
             </div>
+
+            <!-- Analysis Container -->
+            <div class="analysis-container" id="analysis-container" style="display: none;">
+                <div class="analysis-options-panel">
+                    <div class="analysis-panel-header">
+                        <h2>Database Insights</h2>
+                        <p>Select a predefined insight to run SQL analytics on stored stock snapshots.</p>
+                    </div>
+                    <div class="analysis-options-grid" id="analysis-options-list"></div>
+                </div>
+                <div class="analysis-results-panel">
+                    <div class="analysis-result-header">
+                        <h3 id="analysis-result-title">Choose an analysis</h3>
+                        <p id="analysis-result-description">Pick any card on the left to view aggregated metrics.</p>
+                    </div>
+                    <div class="analysis-result-body" id="analysis-result-body">
+                        <div class="analysis-placeholder" id="analysis-placeholder">
+                            <p>Select an insight to see charts and tables generated from your stored snapshots.</p>
+                        </div>
+                        <div id="analysis-result-content"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
