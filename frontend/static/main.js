@@ -80,16 +80,54 @@ function addAnalysisCard(title, data, type) {
             `;
 
         if (data && typeof data === 'object') {
-            Object.entries(data).forEach(([key, value]) => {
-                if (value !== 'N/A' && value !== null) {
-                    const formattedKey = key.replace(/([A-Z])/g, ' $1').trim();
+            // Friendly label map
+            const keyMap = {
+                ticker: 'Ticker',
+                symbol: 'Ticker',
+                shortName: 'Short Name',
+                longName: 'Long Name',
+                sector: 'Sector',
+                currentPrice: 'Current Price',
+                previousClose: 'Previous Close',
+                marketCap: 'Market Cap',
+                trailingPE: 'Trailing P/E',
+                '52WeekHigh': '52 Week High',
+                '52WeekLow': '52 Week Low',
+                totalRevenue: 'Total Revenue',
+                freeCashflow: 'Free Cashflow',
+                website: 'Website'
+            };
+
+            // Primary/top-line fields to render first (keeps layout consistent)
+            const topKeys = ['ticker', 'symbol', 'longName', 'shortName', 'sector', 'currentPrice', 'marketCap'];
+
+            topKeys.forEach(k => {
+                if (k in data && data[k] !== null && data[k] !== 'N/A' && data[k] !== undefined) {
+                    const label = keyMap[k] || k;
+                    const value = data[k];
                     html += `
-                            <div class="stock-metric">
-                                <div class="metric-label">${formattedKey}</div>
-                                <div class="metric-value">${formatValue(value)}</div>
-                            </div>
-                        `;
+                        <div class="stock-metric header-metric">
+                            <div class="metric-label">${label}</div>
+                            <div class="metric-value">${typeof value === 'number' ? formatStockValue(value) : String(value)}</div>
+                        </div>
+                    `;
                 }
+            });
+
+            // Render remaining metrics in deterministic order
+            Object.entries(data).forEach(([key, value]) => {
+                if (value === null || value === 'N/A' || value === undefined) return;
+                if (topKeys.includes(key)) return;
+
+                const label = keyMap[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+                const displayValue = (typeof value === 'number') ? formatStockValue(value) : String(value);
+
+                html += `
+                    <div class="stock-metric">
+                        <div class="metric-label">${label}</div>
+                        <div class="metric-value">${displayValue}</div>
+                    </div>
+                `;
             });
         }
 

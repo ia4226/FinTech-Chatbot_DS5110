@@ -8,3 +8,4 @@ yfinance
 python-multipart
 spacy
 python-dotenv
+psycopg[binary]
